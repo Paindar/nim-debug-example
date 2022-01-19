@@ -8,7 +8,7 @@
             "name": "Debug Nim Project",
             "type": "gdb",
             "request": "launch",
-            "target": "./bin/main",
+            "target": "./bin/main.exe",
             "cwd": "${workspaceRoot}",
             "valuesFormatting": "parseText"
         }

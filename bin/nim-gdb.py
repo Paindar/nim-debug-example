@@ -1,4 +1,5 @@
 
+import json
 import gdb
 import re
 import sys
@@ -204,7 +205,7 @@ class NimStringPrinter:
 
   def to_string(self):
     if self.val:
-      l = int(self.val['Sup']['len'])
+      l = int(self.val['len'])
       return self.val['data'][0].address.string("utf-8", "ignore", l)
     else:
      return ""
@@ -304,7 +305,7 @@ class NimSetPrinter:
 ################################################################################
 
 class NimHashSetPrinter:
-  pattern = re.compile(r'^tyObject_(HashSet)_([A-Za-z0-9]*)$')
+  pattern = re.compile(r'^tyObject_(HashSet)__([A-Za-z0-9]*)$')
 
   def __init__(self, val):
     self.val = val
@@ -313,28 +314,50 @@ class NimHashSetPrinter:
     return 'array'
 
   def to_string(self):
-    counter  = 0
-    capacity = 0
-    if self.val:
-      counter  = int(self.val['counter'])
-      if self.val['data']:
-        capacity = int(self.val['data']['Sup']['len'])
-
-    return 'HashSet({0}, {1})'.format(counter, capacity)
+    return None
 
   def children(self):
-    if self.val:
-      data = NimSeqPrinter(self.val['data'])
-      for idxStr, entry in data.children():
-        if int(entry['Field0']) > 0:
-          yield ("data." + idxStr + ".Field1", str(entry['Field1']))
+    # if self.val:
+    #   for (i, field) in enumerate(self.val.type.fields()):
+    #     yield (field.name, self.val[field])
+    data = NimSeqPrinter(self.val['data'])
+    counter = self.val["counter"]
+    #yield ("counter", counter)
+    #print("counter = "+str(counter))
+    for idxStr, entry in data.children():
+      #print("{0} =>> {1}".format(int(entry['Field0']), str(entry['Field1'])))
+      if int(entry['Field0']) != 0:
+        #yield ("" + idxStr + ".key", str(entry['Field0']))
+        yield ("data."+idxStr+".Field1",  str(entry['Field1']))
+        
 
 ################################################################################
 
 class NimSeqPrinter:
   # the pointer is explicity part of the type. So it is part of
   # ``pattern``.
-  pattern = re.compile(r'^tySequence_\w* \*$')
+  pattern = re.compile(r'^tySequence__\w* \*$')
+
+  def __init__(self, val):
+    self.val = val
+
+  def display_hint(self):
+    return 'seq'
+
+  def to_string(self):
+    return None
+
+  def children(self):
+    if self.val:
+      length = int(self.val['len'])
+      #align = len(str(length - 1))
+      for i in range(length):
+        yield ("[{0}]".format(i), self.val["data"][i])
+
+################################################################################
+
+class NimArrayPrinter:
+  pattern = re.compile(r'^ty.+ \[\]$')
 
   def __init__(self, val):
     self.val = val
@@ -343,34 +366,30 @@ class NimSeqPrinter:
     return 'array'
 
   def to_string(self):
-    len = 0
-    cap = 0
-    if self.val:
-      len = int(self.val['Sup']['len'])
-      cap = int(self.val['Sup']['reserved'])
-
-    return 'seq({0}, {1})'.format(len, cap)
-
+    return "array"
+    
   def children(self):
-    if self.val:
-      length = int(self.val['Sup']['len'])
-      #align = len(str(length - 1))
-      for i in range(length):
-        yield ("data[{0}]".format(i), self.val["data"][i])
+    length = self.val.type.sizeof // self.val[0].type.sizeof
+    align = len(str(length-1))
+    for i in range(length):
+      yield ("[{0:>{1}}]".format(i, align), self.val[i])
 
-################################################################################
 
-class NimArrayPrinter:
+class NimArrayPointerPrinter:
   pattern = re.compile(r'^tyArray_\w*$')
 
   def __init__(self, val):
     self.val = val
 
+
   def display_hint(self):
-    return 'array'
+    return 'array pointer'
 
   def to_string(self):
-    return 'array'
+    length = self.val.type.sizeof // self.val[0].type.sizeof
+    if length == 0:
+      return "{}"
+    return None
 
   def children(self):
     length = self.val.type.sizeof // self.val[0].type.sizeof
@@ -395,7 +414,7 @@ class NimStringTablePrinter:
     if self.val:
       counter  = int(self.val['counter'])
       if self.val['data']:
-        capacity = int(self.val['data']['Sup']['len'])
+        capacity = int(self.val['data']['len'])
 
     return 'StringTableObj({0}, {1})'.format(counter, capacity)
 
@@ -425,7 +444,7 @@ class NimTablePrinter:
     if self.val:
       counter  = int(self.val['counter'])
       if self.val['data']:
-        capacity = int(self.val['data']['Sup']['len'])
+        capacity = int(self.val['data']['len'])
 
     return 'Table({0}, {1})'.format(counter, capacity)
 
@@ -442,57 +461,57 @@ class NimTablePrinter:
 
 # this is untested, therefore disabled
 
-# class NimObjectPrinter:
-#   pattern = re.compile(r'^tyObject_.*$')
+class NimObjectPrinter:
+  pattern = re.compile(r'^tyObject_(.+)__[^ \[\]]+$')
+  priority = -1
 
-#   def __init__(self, val):
-#     self.val = val
+  def __init__(self, val):
+    self.val = val
+    self.obj_type = self.pattern.match(self.val.type.name).group(1)
+    #print("match '%s' result -> %s" %(self.val.type.name, str(len(self.obj_type.group(1)))))
 
-#   def display_hint(self):
-#     return 'object'
+  def display_hint(self):
+    return 'object'
 
-#   def to_string(self):
-#     return str(self.val.type)
+  def to_string(self):
+    return None
 
-#   def children(self):
-#     if not self.val:
-#       yield "object", "<nil>"
-#       raise StopIteration
+  def children(self):
+    if not self.val:
+      yield "object", "<nil>"
+      raise StopIteration
 
-#     for (i, field) in enumerate(self.val.type.fields()):
-#       if field.type.code == gdb.TYPE_CODE_UNION:
-#         yield _union_field
-#       else:
-#         yield (field.name, self.val[field])
+    for (i, field) in enumerate(self.val.type.fields()):
+      if field.type.code == gdb.TYPE_CODE_UNION:
+        yield _union_field
+      else:
+        yield (field.name, self.val[field])
 
-#   def _union_field(self, i, field):
-#     rti = getNimRti(self.val.type.name)
-#     if rti is None:
-#       return (field.name, "UNION field can't be displayed without RTI")
+  def _union_field(self, i, field):
+    rti = getNimRti(self.val.type.name)
+    if rti is None:
+      return (field.name, "UNION field can't be displayed without RTI")
 
-#     node_sons = rti['node'].dereference()['sons']
-#     prev_field = self.val.type.fields()[i - 1]
+    node_sons = rti['node'].dereference()['sons']
+    prev_field = self.val.type.fields()[i - 1]
 
-#     descriminant_node = None
-#     for i in range(int(node['len'])):
-#       son = node_sons[i].dereference()
-#       if son['name'].string("utf-8", "ignore") == str(prev_field.name):
-#         descriminant_node = son
-#         break
-#     if descriminant_node is None:
-#       raise ValueError("Can't find union descriminant field in object RTI")
+    descriminant_node = None
+    for i in range(int(node['len'])):
+      son = node_sons[i].dereference()
+      if son['name'].string("utf-8", "ignore") == str(prev_field.name):
+        descriminant_node = son
+        break
+    if descriminant_node is None:
+      raise ValueError("Can't find union descriminant field in object RTI")
 
-#     if descriminant_node is None: raise ValueError("Can't find union field in object RTI")
-#     union_node = descriminant_node['sons'][int(self.val[prev_field])].dereference()
-#     union_val = self.val[field]
+    if descriminant_node is None: raise ValueError("Can't find union field in object RTI")
+    union_node = descriminant_node['sons'][int(self.val[prev_field])].dereference()
+    union_val = self.val[field]
 
-#     for f1 in union_val.type.fields():
-#       for f2 in union_val[f1].type.fields():
-#         if str(f2.name) == union_node['name'].string("utf-8", "ignore"):
-#            return (str(f2.name), union_val[f1][f2])
-
-#     raise ValueError("RTI is absent or incomplete, can't find union definition in RTI")
-
+    for f1 in union_val.type.fields():
+      for f2 in union_val[f1].type.fields():
+        if str(f2.name) == union_node['name'].string("utf-8", "ignore"):
+           return (str(f2.name), union_val[f1][f2])
 
 ################################################################################
 
@@ -501,8 +520,9 @@ def makematcher(klass):
     typeName = str(val.type)
     try:
       if hasattr(klass, 'pattern') and hasattr(klass, '__name__'):
-        # print(typeName + " <> " + klass.__name__)
+        
         if klass.pattern.match(typeName):
+          #print(typeName + " => " + klass.__name__)
           return klass(val)
     except Exception as e:
       print(klass)
@@ -510,4 +530,6 @@ def makematcher(klass):
   return matcher
 
 nimobjfile.pretty_printers = []
-nimobjfile.pretty_printers.extend([makematcher(var) for var in list(vars().values()) if hasattr(var, 'pattern')])
+printers = [var for var in list(vars().values()) if hasattr(var, 'pattern')]
+printers.sort(key=lambda x:x.priority if hasattr(x, 'priority') else 0, reverse=True)
+nimobjfile.pretty_printers.extend(makematcher(x) for x in printers)
