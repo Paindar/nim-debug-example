@@ -328,7 +328,7 @@ class NimHashSetPrinter:
       #print("{0} =>> {1}".format(int(entry['Field0']), str(entry['Field1'])))
       if int(entry['Field0']) != 0:
         #yield ("" + idxStr + ".key", str(entry['Field0']))
-        yield ("data."+idxStr+".Field1",  str(entry['Field1']))
+        yield (str(entry['Field0']),  str(entry['Field1']))
         
 
 ################################################################################
